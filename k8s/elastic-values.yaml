@@ -1,0 +1,41 @@
+replicas: 3
+
+esConfig:
+  elasticsearch.yml: |
+    node.store.allow_mmap: false
+
+resources:
+  requests:
+    cpu: "500m"
+    memory: "2Gi"
+  limits:
+    cpu: "1"
+    memory: "2Gi"
+
+nodeSelector:
+  dedicated: elasticsearch
+
+tolerations:
+  - key: "dedicated"
+    operator: "Equal"
+    value: "elasticsearch"
+    effect: "NoSchedule"
+
+volumeClaimTemplate:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: elastic-storageclass
+
+extraEnvs:
+  - name: ELASTIC_USERNAME
+    valueFrom:
+      secretKeyRef:
+        name: elastic-credentials
+        key: username
+  - name: ELASTIC_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: elastic-credentials
+        key: password
