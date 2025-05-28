@@ -1,0 +1,25 @@
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: wb-task-cluster
+  region: eu-west-1
+
+nodeGroups:
+  - name: es-nodes
+    instanceType: t3.medium
+    desiredCapacity: 3
+    labels:
+      dedicated: elasticsearch
+    taints:
+      - key: dedicated
+        value: elasticsearch
+        effect: NoSchedule
+    volumeSize: 40
+
+  - name: infra-nodes
+    instanceType: t3.medium
+    desiredCapacity: 2
+    labels:
+      role: infra
+    volumeSize: 20
