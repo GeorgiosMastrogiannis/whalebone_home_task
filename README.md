@@ -1,22 +1,18 @@
-# Whalebone Home Task
+# Whalebone Case Study
 ### by Georgios Mastrogiannis
 
-## Overview
-This repository contains my solution to the **Whalebone Home Task**, where I:
-- **Deployed** a Kubernetes cluster on **AWS EKS**
-
-
----
-
 ## Infrastructure Setup
-- **Decision:** Use **AWS EKS** to create the kubernetes cluster for real-world experience.
+- Use **AWS EKS** to create the kubernetes cluster for real-world experience.
 - Since Elastic Search will need 3 dedicated nodes, I will create 2 additional nodes for any infra tools.
-- **Tools Used:** AWS CLI, eksctl, kubectl, Helm.
+- **Tools Used:** AWS CLI, eksctl, kubectl, helm.
 
 **AWS CLI Configuration:**  
 `aws configure --profile aws-personal`  
 
-**Creating the EKS Cluster with eksctl:**  
+**Creating the EKS Cluster with eksctl:**
+
+Adding the taint and labels since we will need them later
+
 `eksctl create cluster -f wb-task-cluster.yaml --profile aws-personal`  
 
 ![EKS Cluster overview](screenshots/eks_cluster_overview.png)
@@ -24,7 +20,9 @@ This repository contains my solution to the **Whalebone Home Task**, where I:
 ---
 
 ## Apps Installation
-✅ **Create new StorageClass**
+### Create new StorageClass
+
+Made it default and reclaim policy as Retain
 ```
 georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubectl apply -f elastic-storageclass.yaml
 storageclass.storage.k8s.io/elastic-storageclass created
@@ -36,30 +34,30 @@ elastic-storageclass (default)   ebs.csi.aws.com         Retain          WaitFor
 gp2                              kubernetes.io/aws-ebs   Delete          WaitForFirstConsumer   false                  3h42m
 ```
 
-**Create Elastic Search credentials secret**
+### Create Elastic Search credentials secret
+
 `kubectl create secret ...`
 This kubernetes secret will be encrypted at rest, meaning in etcd, but still visible with kubectl as per documentation:
+
 https://docs.aws.amazon.com/eks/latest/userguide/envelope-encryption.html
+
+
+```
+georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubectl get secret -n elastic
+NAME                                  TYPE                 DATA   AGE
+elastic-credentials                   Opaque               2      29h
+```
+
 If time allows will introduce sealed secrets
 
-**Install Elastic Search**
+### Install Elastic Search
+
+Elastic Search pods land on the dedicated nodes and use the new storage class:
+
 ```
 georgiosmastrogiannis@Evas-MacBook-Pro k8s % helm install elasticsearch elastic/elasticsearch \
   -n elastic \
   -f elastic-values.yaml
-W0528 15:34:27.328870   59985 warnings.go:70] spec.template.spec.containers[0].env[18]: hides previous definition of "ELASTIC_PASSWORD", which may be dropped when using apply
-NAME: elasticsearch
-LAST DEPLOYED: Wed May 28 15:34:25 2025
-NAMESPACE: elastic
-STATUS: deployed
-REVISION: 1
-NOTES:
-1. Watch all cluster members come up.
-  $ kubectl get pods --namespace=elastic -l app=elasticsearch-master -w
-2. Retrieve elastic user's password.
-  $ kubectl get secrets --namespace=elastic elasticsearch-master-credentials -ojsonpath='{.data.password}' | base64 -d
-3. Test cluster health using Helm test.
-  $ helm --namespace=elastic test elasticsearch
 ```
 
 ```
@@ -90,12 +88,113 @@ ip-192-168-39-185.eu-west-1.compute.internal   Ready    <none>   5h43m   v1.30.1
 ip-192-168-78-72.eu-west-1.compute.internal    Ready    <none>   5h44m   v1.30.11-eks-473151a   alpha.eksctl.io/cluster-name=wb-task-cluster,alpha.eksctl.io/instance-id=i-04bf2ae2197427ac8,alpha.eksctl.io/nodegroup-name=es-nodes,beta.kubernetes.io/arch=amd64,beta.kubernetes.io/instance-type=t3.medium,beta.kubernetes.io/os=linux,dedicated=elasticsearch,failure-domain.beta.kubernetes.io/region=eu-west-1,failure-domain.beta.kubernetes.io/zone=eu-west-1c,k8s.io/cloud-provider-aws=ccf8b604b8038cc5aec106e14e7c564c,kubernetes.io/arch=amd64,kubernetes.io/hostname=ip-192-168-78-72.eu-west-1.compute.internal,kubernetes.io/os=linux,node-lifecycle=on-demand,node.kubernetes.io/instance-type=t3.medium,topology.ebs.csi.aws.com/zone=eu-west-1c,topology.k8s.aws/zone-id=euw1-az1,topology.kubernetes.io/region=eu-west-1,topology.kubernetes.io/zone=eu-west-1c
 ```
 
-##TSHOOT
-At my first attempt I created the cluster with t3.small nodes, to save money, but then noticed in the official docs Elastic Search pods need at least 2GB:
+```
+georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubectl exec -n elastic elasticsearch-master-0 -- curl -k -u elastic:whalebone https://localhost:9200/_cat/health
+Defaulted container "elasticsearch" out of: elasticsearch, configure-sysctl (init)
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+100    65  100    65    0     0   2500      0 --:--:-- --:--:-- --:--:--  2500
+1748444246 14:57:26 elasticsearch green 3 3 2 1 0 0 0 0 - 100.0%
+```
+
+🟢 is good
+
+### Install Nginx ingress controller
+
+```
+georgiosmastrogiannis@Evas-MacBook-Pro k8s % helm install nginx-ingress ingress-nginx/ingress-nginx \
+  --namespace ingress-nginx --create-namespace \
+  --set controller.service.type=LoadBalancer \
+  --set controller.service.annotations."service\.beta\.kubernetes\.io/aws-load-balancer-scheme"=internet-facing
+```
+
+Wait a bit until it's ready:
+
+```
+georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubectl get service --namespace ingress-nginx nginx-ingress-ingress-nginx-controller                      
+NAME                                     TYPE           CLUSTER-IP     EXTERNAL-IP                                                                     PORT(S)                      AGE
+nginx-ingress-ingress-nginx-controller   LoadBalancer   10.100.105.3   k8s-ingressn-nginxing-25ff99e89d-7a486730987674cd.elb.eu-west-1.amazonaws.com   80:31743/TCP,443:31457/TCP   2m3s
+```
+
+### Create Ingress
+
+`georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubectl apply -f elastic-ingress.yaml`
+
+```
+georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubectl get ingress -n elastic
+NAME              CLASS    HOSTS               ADDRESS                                                                         PORTS     AGE
+elastic-ingress   <none>   es.mastrogiann.is   k8s-ingressn-nginxing-25ff99e89d-7a486730987674cd.elb.eu-west-1.amazonaws.com   80, 443   80m
+```
+
+### Install cert-manager
+
+`kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml`
+
+```
+georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubectl get pods -n cert-manager
+
+NAME                                       READY   STATUS    RESTARTS   AGE
+cert-manager-6687d8765c-rvfrf              1/1     Running   0          14s
+cert-manager-cainjector-764498cfc8-6tlkn   1/1     Running   0          14s
+cert-manager-webhook-74c74b87d7-gnzmp      1/1     Running   0          14s
+```
+
+```georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubectl apply -f cluster-issuer.yaml 
+clusterissuer.cert-manager.io/letsencrypt-prod created
+```
+
+Make sure the cert is ready:
+
+```
+georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubectl get certificate -n elastic
+NAME                READY   SECRET              AGE
+elasticsearch-tls   True    elasticsearch-tls   86m
+```
+
+and ingress is using the cluster-issuer:
+
+```
+georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubectl describe ingress -n elastic
+Name:             elastic-ingress
+Labels:           <none>
+Namespace:        elastic
+Address:          k8s-ingressn-nginxing-25ff99e89d-7a486730987674cd.elb.eu-west-1.amazonaws.com
+Ingress Class:    <none>
+Default backend:  <default>
+TLS:
+  elasticsearch-tls terminates es.mastrogiann.is
+Rules:
+  Host               Path  Backends
+  ----               ----  --------
+  es.mastrogiann.is  
+                     /   elasticsearch-master:9200 (192.168.1.60:9200,192.168.82.44:9200,192.168.36.154:9200)
+Annotations:         cert-manager.io/cluster-issuer: letsencrypt-prod
+                     kubernetes.io/ingress.class: nginx
+                     nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+Events:              <none>
+```
+
+### Add DNS record
+
+![DNS change](screenshots/dns_domain_change.png)
+
+### Access Elastic Search
+
+[es.mastrogiannis.is](https://es.mastrogiann.is)
+
+![Elastic Search access](screenshots/es_health_status.png)
+
+----
+
+## TSHOOT
+- At my first attempt I created the cluster with t3.small nodes, to save money, but then noticed in the official docs Elastic Search pods need at least 2GB:
+
 https://www.elastic.co/docs/deploy-manage/deploy/cloud-on-k8s/elasticsearch-deployment-quickstart
+
 So I had to recreate the cluster with t3.medium which has 4GB
 
-After installing Elastic Search with helm chart, pods where in Pending:
+- After installing Elastic Search with helm chart, pods where in Pending:
+
 ```
 georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubectl get pods --namespace=elastic -l app=elasticsearch-master -w
 NAME                     READY   STATUS    RESTARTS   AGE
@@ -103,7 +202,9 @@ elasticsearch-master-0   0/1     Pending   0          27s
 elasticsearch-master-1   0/1     Pending   0          27s
 elasticsearch-master-2   0/1     Pending   0          27s
 ```
+
 After double checking taints, labels and resources I noticed these messages in the events:
+
 ```
 4m22s Normal ExternalProvisioning persistentvolumeclaim/elasticsearch-master-elasticsearch-master-0 Waiting for a volume to be created either by the external provisioner 'ebs.csi.aws.com' or manually by the system administrator. If volume creation is delayed, please verify that the provisioner is running and correctly registered.
 georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubectl get events -n elastic LAST SEEN TYPE REASON OBJECT MESSAGE 4m13s Warning FailedScheduling pod/elasticsearch-master-0 running PreBind plugin "VolumeBinding": binding volumes: context deadline exceeded 4m13s Warning FailedScheduling pod/elasticsearch-master-1 running PreBind plugin "VolumeBinding": binding volumes: context deadline exceeded 4m13s Warning FailedScheduling pod/elasticsearch-master-2 running PreBind plugin "VolumeBinding": binding volumes: context deadline exceeded
@@ -118,6 +219,7 @@ eksctl utils associate-iam-oidc-provider \
   --approve \
   --profile aws-personal
 ```
+
 AWS asked me to run this when I tried to create the service account the first time:
 `2025-05-28 16:07:54 [!]  no IAM OIDC provider associated with cluster, try 'eksctl utils associate-iam-oidc-provider --region=eu-west-1 --cluster=wb-task-cluster'`
 
@@ -138,3 +240,4 @@ eksctl create addon \
   --force \
   --profile aws-personal
   ```
+
