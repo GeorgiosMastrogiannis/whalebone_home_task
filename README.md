@@ -222,6 +222,17 @@ georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubectl apply -f elasticsearch-mast
 sealedsecret.bitnami.com/elasticsearch-master-credentials created
 ```
 
+- Add lightweight monitoring with k8slens
+
+https://app.k8slens.dev
+
+![k8s nodes](screenshots/lens_nodes_1.png)
+
+![k8s overview](screenshots/lens_overview_1.png)
+
+![es ingress](screenshots/lens_es_ingress_1.png)
+
+![k8s pvc](screenshots/lens_pvc_1.png)
 
 ----
 
