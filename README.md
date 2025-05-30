@@ -296,5 +296,6 @@ eksctl create addon \
 
   ---
 
-- I had to switch from to Nginx ingress controller
+- Switch to Nginx ingress controller
+
 I started with the AWS ALB Ingress Controller but switched to NGINX because ALB only works with ACM for TLS, and I needed cert-manager to handle Let's Encrypt certificates automatically. NGINX made that setup much smoother.
