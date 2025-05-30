@@ -184,6 +184,45 @@ Events:              <none>
 
 ![Elastic Search access](screenshots/es_health_status.png)
 
+🎉
+
+---
+
+## Improvements
+- Introduce sealed secrets, so secrets are not visible anymore with kubectl and can be committed on git
+
+```
+georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubectl apply -f https://github.com/bitnami-labs/sealed-secrets/releases/download/v0.25.0/controller.yaml
+role.rbac.authorization.k8s.io/sealed-secrets-key-admin created
+clusterrolebinding.rbac.authorization.k8s.io/sealed-secrets-controller created
+clusterrole.rbac.authorization.k8s.io/secrets-unsealer created
+customresourcedefinition.apiextensions.k8s.io/sealedsecrets.bitnami.com created
+service/sealed-secrets-controller created
+role.rbac.authorization.k8s.io/sealed-secrets-service-proxier created
+rolebinding.rbac.authorization.k8s.io/sealed-secrets-controller created
+serviceaccount/sealed-secrets-controller created
+deployment.apps/sealed-secrets-controller created
+rolebinding.rbac.authorization.k8s.io/sealed-secrets-service-proxier created
+service/sealed-secrets-controller-metrics created
+georgiosmastrogiannis@Evas-MacBook-Pro k8s % 
+georgiosmastrogiannis@Evas-MacBook-Pro k8s % 
+georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubectl get pods -n kube-system | grep sealed-secrets
+sealed-secrets-controller-649df66d59-6cg75      0/1     Running   0          10s
+georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubectl get pods -n kube-system | grep sealed-secrets -w
+sealed-secrets-controller-649df66d59-6cg75      1/1     Running   0          29s
+```
+
+```
+georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubeseal --controller-name=sealed-secrets-controller --controller-namespace=kube-system \
+  --format yaml < elasticsearch-master-credentials.yaml > elasticsearch-master-credentials-sealed.yaml
+```
+
+```
+georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubectl apply -f elasticsearch-master-credentials-sealed.yaml                                                 
+sealedsecret.bitnami.com/elasticsearch-master-credentials created
+```
+
+
 ----
 
 ## TSHOOT
@@ -192,6 +231,8 @@ Events:              <none>
 https://www.elastic.co/docs/deploy-manage/deploy/cloud-on-k8s/elasticsearch-deployment-quickstart
 
 So I had to recreate the cluster with t3.medium which has 4GB
+
+---
 
 - After installing Elastic Search with helm chart, pods where in Pending:
 
@@ -207,6 +248,7 @@ After double checking taints, labels and resources I noticed these messages in t
 
 ```
 4m22s Normal ExternalProvisioning persistentvolumeclaim/elasticsearch-master-elasticsearch-master-0 Waiting for a volume to be created either by the external provisioner 'ebs.csi.aws.com' or manually by the system administrator. If volume creation is delayed, please verify that the provisioner is running and correctly registered.
+
 georgiosmastrogiannis@Evas-MacBook-Pro k8s % kubectl get events -n elastic LAST SEEN TYPE REASON OBJECT MESSAGE 4m13s Warning FailedScheduling pod/elasticsearch-master-0 running PreBind plugin "VolumeBinding": binding volumes: context deadline exceeded 4m13s Warning FailedScheduling pod/elasticsearch-master-1 running PreBind plugin "VolumeBinding": binding volumes: context deadline exceeded 4m13s Warning FailedScheduling pod/elasticsearch-master-2 running PreBind plugin "VolumeBinding": binding volumes: context deadline exceeded
 ```
 
@@ -241,3 +283,7 @@ eksctl create addon \
   --profile aws-personal
   ```
 
+  ---
+
+- I had to switch from to Nginx ingress controller
+I started with the AWS ALB Ingress Controller but switched to NGINX because ALB only works with ACM for TLS, and I needed cert-manager to handle Let's Encrypt certificates automatically. NGINX made that setup much smoother.
